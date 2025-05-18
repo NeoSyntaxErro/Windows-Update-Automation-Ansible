@@ -34,41 +34,32 @@
       - name: Show Outdated packages
         ansible.builtin.debug:
           msg: "{{ outdated_packages.stdout }}"
-        when: outdated_packages.stdout != "No outdated packages found."
+        when: outdated_packages.stdout != "No outdated packages found.\n"
 
       - name: Update Outdated Pacakges via Chocolatey
         ansible.windows.win_shell: |
           choco upgrade all -y --ignore-checksums --ignore-dependencies | Tee-Object -FilePath C:\temp\choco_update_log.txt
         register: update_packages
-        when: outdated_packages.stdout != "No outdated packages found."
+        when: outdated_packages.stdout != "No outdated packages found.\n"
 
       - name: Fetch Choco Update Log
         ansible.windows.win_shell: |
           Get-Content C:\temp\choco_update_log.txt
         register: choco_update_log
-        when: outdated_packages.stdout != "No outdated packages found."
+        when: outdated_packages.stdout != "No outdated packages found.\n"
 
       - name: Show Choco Update Log
         ansible.builtin.debug:
           msg: "{{ choco_update_log.stdout_lines }}"
-        when: outdated_packages.stdout != "No outdated packages found."
+        when: outdated_packages.stdout != "No outdated packages found.\n"
 
       - name: Remove Choco Update Log
         ansible.windows.win_file:
           path: C:\temp\choco_update_log.txt
           state: absent
-        when: outdated_packages.stdout != "No outdated packages found."
+        when: outdated_packages.stdout != "No outdated packages found.\n"
 
 ######## G R A B   A V A I L A B L E   O S   U P D A T E S #######
-      - name: Show Update Results
-        ansible.builtin.debug:
-          msg: "{{ update_packages.stdout }}"
-        when: outdated_packages.stdout != "No outdated packages found."
-
-      - name: Check for Chocolatey Installation Failure
-        ansible.builtin.debug:
-          msg: "Chocolatey installation failed"
-        when: update_packages.failed
 - name: Check for available Windows OS Updates
   hosts: endpoints_winrm
   gather_facts: no
@@ -221,6 +212,15 @@
       ansible.builtin.debug:
         msg: "{{ system_uptime.stdout_lines }}"
 
-    - name: Reboot the system
-      ansible.windows.win_shell: 
-        shutdown.exe /r /f /t 60 /c "System will reboot in 60 seconds to complete updates. -dadmin"
+    - name: Get Storage Metrics
+      ansible.windows.win_shell: |
+        Get-PSDrive -PsProvider FileSystem
+      register: storage_metrics
+
+    - name: Show Storage Metrics
+      ansible.builtin.debug:
+        msg: "{{ storage_metrics.stdout_lines }}"
+
+   - name: Reboot the system
+     ansible.windows.win_shell: 
+       shutdown.exe /r /f /t 60 /c "System will reboot in 60 seconds to complete updates. -dadmin"
