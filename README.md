@@ -123,3 +123,37 @@ chmod +x run_patch_playbook.sh
 ---
 
 Created and maintained by: **Steffen Teall**
+
+
+---
+# ⚠️ Security Advisory: Use in Trusted Environments Only
+
+This project is intended for use in secure, isolated environments such as test labs or internal networks. The default configurations, including WinRM over HTTP and potential use of basic authentication, expose sensitive data and credentials to interception risks. Deploying this setup in untrusted or production environments without modifications can lead to significant security vulnerabilities.
+
+---
+
+## 🔐 Recommendations for Securing WinRM and SSH Connections
+
+### WinRM (Windows Remote Management)
+
+- **Enable HTTPS**: Configure WinRM to use HTTPS with valid TLS certificates to encrypt data in transit. This prevents credentials and other sensitive information from being transmitted in plaintext.
+- **Use Secure Authentication Methods**: Prefer Kerberos authentication in domain environments or certificate-based authentication for local accounts. Avoid using Basic or NTLM authentication over HTTP.
+- **Restrict Access**: Limit WinRM access to specific IP addresses or networks using firewall rules to reduce exposure to potential attackers.
+
+### SSH (Secure Shell)
+
+- **Disable Password Authentication**: Configure SSH to accept only key-based authentication, eliminating the risks associated with password-based logins.
+- **Use Non-Root Users**: Set up dedicated, unprivileged users for Ansible operations, granting necessary privileges via `sudo` as needed. This adheres to the principle of least privilege.
+- **Implement SSH Hardening Measures**: Consider additional SSH hardening practices, such as changing the default SSH port, disabling root login, setting idle timeout intervals, and limiting the number of authentication attempts.
+
+---
+
+## 🛡️ General Security Best Practices
+
+- **Encrypt Sensitive Data**: Use Ansible Vault to encrypt passwords, API keys, and other sensitive variables within your playbooks.
+- **Implement Role-Based Access Control (RBAC)**: Utilize Ansible Tower or AWX to manage user permissions, ensuring that only authorized personnel can execute specific tasks.
+- **Sanitize Output**: Use the `no_log: true` directive in tasks that handle sensitive information to prevent credentials from being displayed in logs.
+
+---
+
+By implementing these security measures, you can enhance the protection of your systems when using the Windows-Update-Automation-Ansible framework in more exposed or production environments.
