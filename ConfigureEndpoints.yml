@@ -1,0 +1,38 @@
+---
+- name: Configure OpenSSH default shell and WinRM on Windows endpoints
+  hosts: endpoints_conf
+  gather_facts: no
+  tasks:
+
+    - name: Set OpenSSH default shell to PowerShell
+      ansible.windows.win_shell: |
+        New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" `
+                         -Name DefaultShell `
+                         -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" `
+                         -PropertyType String -Force
+        Restart-Service sshd
+
+    - name: Enable and configure WinRM
+      ansible.windows.win_shell: |
+        winrm quickconfig -force
+        winrm set winrm/config/service/auth '@{Basic="true"}'
+        winrm set winrm/config/service '@{AllowUnencrypted="true"}'
+        winrm enumerate winrm/config/listener
+
+    - name: Create firewall rule to allow WinRM
+      ansible.windows.win_shell: |
+        New-NetFirewallRule -DisplayName "Allow WinRM" `
+                            -Direction Inbound `
+                            -LocalPort 5985 `
+                            -Protocol TCP `
+                            -Action Allow
+
+    # This is redunant and likely to fail as the ansible user should already be a local admin
+    # and the ansible user is not a domain user
+    - name: Add user to local Administrators group  
+      ansible.windows.win_shell: |
+        $username = "{{ ansible_user }}"
+        $group = [ADSI]"WinNT://./Administrators,group"
+        if (-not ($group.psbase.Invoke("IsMember", "WinNT://$username"))) {
+            $group.Add("WinNT://$username")
+        }
