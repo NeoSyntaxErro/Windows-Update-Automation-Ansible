@@ -1,6 +1,9 @@
 ---
 # Playbooks written by: Steffen Teall
 # Date: 2025-05-18
+# Target Endpoints: Windows 10/11
+# Description: This playbook is designed to check for and install 3rd party application updates via Chocolatey,
+#               check for and install Windows OS updates, and reboot the system.
 
 ######## C H E C K   F O R   C H O C O L A T E Y   A P P   U P D A T E S #######
 # This playbook uses ssh authentication to bypass elevation limitations of WinRM
@@ -11,9 +14,9 @@
   
 ######## C H E C K   F O R   C H O C O L A T E Y   A P P   U P D A T E S #######
       - name: Check to make sure Chocolatey is installed
-      win_chocolatey:
-        name: chocolatey
-        state: present
+        win_chocolatey:
+          name: chocolatey
+          state: present
 
       - name: check for outdated packages
         ansible.windows.win_shell: |
@@ -35,8 +38,25 @@
 
       - name: Update Outdated Pacakges via Chocolatey
         ansible.windows.win_shell: |
-          choco upgrade all -y --ignore-checksums --ignore-dependencies
+          choco upgrade all -y --ignore-checksums --ignore-dependencies | Tee-Object -FilePath C:\temp\choco_update_log.txt
         register: update_packages
+        when: outdated_packages.stdout != "No outdated packages found."
+
+      - name: Fetch Choco Update Log
+        ansible.windows.win_shell: |
+          Get-Content C:\temp\choco_update_log.txt
+        register: choco_update_log
+        when: outdated_packages.stdout != "No outdated packages found."
+
+      - name: Show Choco Update Log
+        ansible.builtin.debug:
+          msg: "{{ choco_update_log.stdout_lines }}"
+        when: outdated_packages.stdout != "No outdated packages found."
+
+      - name: Remove Choco Update Log
+        ansible.windows.win_file:
+          path: C:\temp\choco_update_log.txt
+          state: absent
         when: outdated_packages.stdout != "No outdated packages found."
 
 ######## G R A B   A V A I L A B L E   O S   U P D A T E S #######
