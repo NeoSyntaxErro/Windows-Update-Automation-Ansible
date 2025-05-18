@@ -38,7 +38,7 @@ LOG_DIR="$HOME/ansible-patch-logs"
 mkdir -p "$LOG_DIR"
 
 # Cron job command
-CRON_CMD="30 23 * * 0 $ANSIBLE_PLAYBOOK_BIN -i '$INVENTORY_PATH' '$PLAYBOOK_PATH' >> '$LOG_DIR/patch_run.log' 2>&1"
+CRON_CMD="30 23 * * 0 $ANSIBLE_PLAYBOOK_BIN -i \"$INVENTORY_PATH\" \"$PLAYBOOK_PATH\" >> \"$LOG_DIR/\$(date +\%Y-\%m-\%d_\%H-\%M-\%S).txt\" 2>&1"
 
 # Remove any previous job matching this playbook path
 ( crontab -l 2>/dev/null | grep -v "$PLAYBOOK_PATH" ; echo "$CRON_CMD" ) | crontab -
