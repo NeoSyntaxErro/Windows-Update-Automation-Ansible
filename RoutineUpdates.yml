@@ -1,0 +1,206 @@
+---
+# Playbooks written by: Steffen Teall
+# Date: 2025-05-18
+
+######## C H E C K   F O R   C H O C O L A T E Y   A P P   U P D A T E S #######
+# This playbook uses ssh authentication to bypass elevation limitations of WinRM
+- name: Check for / Install 3rd Party Application Updates via Chocolatey
+  hosts: endpoints_ssh
+  gather_facts: no
+  tasks:
+  
+######## C H E C K   F O R   C H O C O L A T E Y   A P P   U P D A T E S #######
+      - name: Check to make sure Chocolatey is installed
+      win_chocolatey:
+        name: chocolatey
+        state: present
+
+      - name: check for outdated packages
+        ansible.windows.win_shell: |
+          $pendingUpdates = choco outdated | Select-Object -Last 1
+          if ($pendingUpdates.split(' ')[3] -eq '0') {
+            Write-Host "No outdated packages found."
+          } else {
+            Write-Host "Outdated packages found."
+            $output = choco outdated
+            Write-Host $output
+          }
+
+        register: outdated_packages
+
+      - name: Show Outdated packages
+        ansible.builtin.debug:
+          msg: "{{ outdated_packages.stdout }}"
+        when: outdated_packages.stdout != "No outdated packages found."
+
+      - name: Update Outdated Pacakges via Chocolatey
+        ansible.windows.win_shell: |
+          choco upgrade all -y --ignore-checksums --ignore-dependencies
+        register: update_packages
+        when: outdated_packages.stdout != "No outdated packages found."
+
+######## G R A B   A V A I L A B L E   O S   U P D A T E S #######
+      - name: Show Update Results
+        ansible.builtin.debug:
+          msg: "{{ update_packages.stdout }}"
+        when: outdated_packages.stdout != "No outdated packages found."
+
+      - name: Check for Chocolatey Installation Failure
+        ansible.builtin.debug:
+          msg: "Chocolatey installation failed"
+        when: update_packages.failed
+- name: Check for available Windows OS Updates
+  hosts: endpoints_winrm
+  gather_facts: no
+  tasks:
+
+####### N U G E T   C H E C K   /   I N S T A L L #######
+    - name: Install NuGet Pacakge Provider if missing
+      ansible.windows.win_shell: |
+        if (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue) {
+          # NuGet is already installed
+        } else { 
+          Install-PackageProvider -Name NuGet -Force | Out-Null
+        }
+      register: nuget_installed
+
+    - name: Check NuGest Existence per Install Script
+      ansible.builtin.debug:
+        msg: "NuGet Package Provider already installed"
+      when: nuget_installed.stdout | length == 0
+
+    # This Task is skipped if there are no failures
+    - name: Check for NuGet Installation Failure
+      ansible.builtin.debug:
+        msg: "NuGet Package Provider installation failed"
+      when: nuget_installed.failed
+
+####### PSWindowsUpdate C H E C K   /   I N S T A L L #######
+    - name: Check for Existence of PSWindowsUpdate Module
+      ansible.windows.win_shell: |
+        if (Get-Module -ListAvailable -Name PSWindowsUpdate) {
+          # PSWindowsUpdate is already installed
+        } else { 
+          Install-Module -Name PSWindowsUpdate -Force -AllowClobber -Scope AllUsers | Out-Null
+        }
+      register: pswindowsupdate_module_installed
+
+    - name: Check PSWindowsUpdate Module Existence per Install Script
+      ansible.builtin.debug:
+        msg: "PSWindowsUpdate Module already installed"
+      when: pswindowsupdate_module_installed.stdout | length == 0
+
+    - name: Check PSWindowsUpdate Installation for failure
+      ansible.builtin.debug:
+        msg: "PSWindowsUpdate Module installation failed"
+      when: pswindowsupdate_module_installed.failed
+
+####### C H E C K   F O R   O S   U P D A T E S #######
+    - name: Check Windows Updates
+      ansible.windows.win_shell: |
+        Import-Module PSWindowsUpdate
+        Get-WindowsUpdate -AcceptAll -IgnoreReboot
+      register: windows_updates
+
+    - name: List available Windows Updates
+      ansible.builtin.debug:
+        msg: "{{ windows_updates.stdout_lines }}"
+      when: windows_updates.stdout_lines | length > 0
+
+    - name: Notify on no pending updates
+      ansible.builtin.debug:
+        msg: "No pending Windows updates found."
+      when: windows_updates.stdout_lines | length == 0
+
+    - name: Set fact if updates are pending
+      ansible.builtin.set_fact:
+        updates_pending: true
+      when: windows_updates.stdout_lines | length > 0
+
+####### I N S T A L L   O S   U P D A T E S #######
+- name: Conditionally Install Windows Updates
+  hosts: endpoints_ssh
+  gather_facts: no
+  tasks:
+
+    - name: Download PsExec if not already in path
+      ansible.windows.win_shell: |
+        if (Test-Path C:\temp\PsExec.exe) {
+          # PsExec already exists
+        } else {
+          if (-not (Test-Path C:\temp)) {
+            New-Item -Path C:\temp -ItemType Directory
+          }
+          Invoke-WebRequest -Uri https://download.sysinternals.com/files/PSTools.zip -OutFile C:\temp\PSTools.zip
+          Expand-Archive -Path C:\temp\PSTools.zip -DestinationPath C:\temp
+          Remove-Item -Path C:\temp\PSTools.zip
+
+          if (Test-Path 'C:\temp\PSTools\PsExec.exe') {
+            Move-Item -Path 'C:\temp\PSTools\PsExec.exe' -Destination 'C:\temp' -Force
+          } elseif (Test-Path 'C:\temp\PSTools\PsExec64.exe') {
+            Move-Item -Path 'C:\temp\PSTools\PsExec64.exe' -Destination 'C:\temp\PsExec.exe' -Force
+          } else {
+            Write-Error "PsExec executable not found after extraction."
+          }
+        }
+      when: hostvars[inventory_hostname].updates_pending | default(false)
+
+      register: psexec_installed
+      ignore_errors: yes
+
+    - name: Capture Current time before update installation
+      ansible.windows.win_shell: |
+        (Get-Date).ToString("s")
+      register: update_start_time_raw
+      when: hostvars[inventory_hostname].updates_pending | default(false)
+
+    - name: Set Start Time Fact
+      ansible.builtin.set_fact:
+        update_start_time: "{{ update_start_time_raw.stdout }}"
+      when: hostvars[inventory_hostname].updates_pending | default(false)
+
+    - name: Install all available Windows Updates
+      ansible.windows.win_command: |
+        C:\temp\PsExec.exe -accepteula -s powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "& {
+          try {
+              Import-Module PSWindowsUpdate -ErrorAction Stop
+              Install-WindowsUpdate -AcceptAll -ForceDownload -ForceInstall -Verbose *>&1 | Tee-Object -FilePath 'C:\temp\update_log.txt'
+          } catch {
+              '`nFAILED: ' + $_ | Out-File -FilePath 'C:\temp\update_log.txt' -Append
+              exit 1
+          }
+        }"
+
+      register: update_results
+      when: hostvars[inventory_hostname].updates_pending | default(false)
+
+    - name: Grab Recently Installed Updates from Log
+      ansible.windows.win_shell: |
+        Get-Content C:\temp\update_log.txt
+      register: update_log
+      when: hostvars[inventory_hostname].updates_pending | default(false)
+
+    - name: Show Update Results from log
+      ansible.builtin.debug:
+        msg: "{{ update_log.stdout_lines }}"
+      when: hostvars[inventory_hostname].updates_pending | default(false)
+
+    - name: Remove Log File
+      ansible.windows.win_file:
+        path: C:\temp\update_log.txt
+        state: absent
+      when: hostvars[inventory_hostname].updates_pending | default(false)
+
+    - name: Get System Uptime
+      ansible.windows.win_shell: |
+        $uptime = (Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
+        Write-Host "System Uptime: $($uptime.Days) days, $($uptime.Hours) hours, $($uptime.Minutes) minutes"
+      register: system_uptime
+      
+    - name: Show System Uptime
+      ansible.builtin.debug:
+        msg: "{{ system_uptime.stdout_lines }}"
+
+    - name: Reboot the system
+      ansible.windows.win_shell: 
+        shutdown.exe /r /f /t 60 /c "System will reboot in 60 seconds to complete updates. -dadmin"
